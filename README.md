@@ -52,8 +52,6 @@
 
 | 话题名称 | 消息类型 | QoS 策略 | 说明 |
 
-| :--- | :--- | :--- | :--- |
-
 | `/face_detection/image_annotated` | `sensor_msgs/msg/Image` | `SensorDataQoS` | 叠加绿色人脸边界框、中心准星、目标编号及实时 FPS 的可视化图像流 (`bgr8`) |
 
 | `/face_detection/face_centers` | `geometry_msgs/msg/PoseArray` | `Reliable (depth=10)` | 检测到的人脸目标中心像素坐标 `(x, y)` 及检测框宽度尺度 `(z)` |
@@ -62,11 +60,7 @@
 
 ### 2.2 可配置参数 (Parameters)
 
-
-
 | 参数名 | 类型 | 默认值 | 说明 |
-
-| :--- | :--- | :--- | :--- |
 
 | `camera_id` | `int` | `0` | 摄像头设备索引号（如 `/dev/video0` 对应 `0`） |
 
@@ -154,7 +148,7 @@ sudo apt install -y ros-$ROS_DISTRO-cv-bridge ros-$ROS_DISTRO-image-transport li
 
 mkdir -p ~/ros2_ws/src && cd ~/ros2_ws/src
 
-git clone https://github.com/<你的GitHub用户名>/ros2_cpp_realtime_face_detector.git
+git clone https://github.com/Getmorepower/ros2_cpp_realtime_face_detector.git
 
 
 
@@ -170,7 +164,7 @@ source install/setup.bash
 
 ### 4.3 启动运行
 
-* **默认模式（笔记本内置摄像头 + 开启预览窗口）：**
+* **默认模式（摄像头 + 开启预览窗口）：**
 
   ```bash
 
