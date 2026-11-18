@@ -16,7 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          path: ros2_ws/src
+          path: ros2_ws/src/ros2_cpp_realtime_face_detector
 
       - name: Install OpenCV and ROS 2 vision dependencies
         run: |
