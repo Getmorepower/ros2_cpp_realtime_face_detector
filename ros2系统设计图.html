@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>农业机器人 ROS 2 节点通信架构示意图</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 引入 html2canvas 用于一键导出高清 PNG 截图 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+      margin: 0;
+      padding: 24px;
+    }
+    .font-mono-code {
+      font-family: 'JetBrains Mono', Consolas, Monaco, monospace;
+    }
+    /* 白皮书主画布容器 */
+    #diagram-canvas {
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.08), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
+      border: 1px solid #e2e8f0;
+      max-width: 1220px;
+      min-width: 1024px;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+    }
+    /* 节点卡片通用样式 */
+    .node-card {
+      background: #ffffff;
+      border-radius: 10px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      position: relative;
+      z-index: 10;
+    }
+    .node-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 16px -4px rgba(15, 23, 42, 0.1);
+    }
+    /* 层级容器样式 */
+    .layer-box {
+      border-radius: 12px;
+      position: relative;
+    }
+    /* SVG 连线覆盖层 */
+    #svg-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 5;
+    }
+    /* 连线标签胶囊 */
+    .edge-badge {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 7px;
+      border-radius: 5px;
+      white-space: nowrap;
+      z-index: 15;
+      line-height: 1.3;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .badge-topic {
+      background-color: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+    .badge-service {
+      background-color: #ecfdf5;
+      color: #047857;
+      border: 1px solid #a7f3d0;
+    }
+    .badge-action {
+      background-color: #fff7ed;
+      color: #c2410c;
+      border: 1px solid #fed7aa;
+      font-weight: 600;
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      #toolbar { display: none !important; }
+      #diagram-canvas { box-shadow: none; border: none; max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部悬浮工具栏（截图导出时自动隐藏） -->
+  <div id="toolbar" class="max-w-[1220px] min-w-[1024px] mx-auto mb-4 flex items-center justify-between bg-white px-5 py-3 rounded-xl border border-slate-200 shadow-sm">
+    <div class="flex items-center gap-3">
+      <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold text-sm">ROS2</span>
+      <div>
+        <div class="text-sm font-semibold text-slate-800">矢量架构图预览与导出工具</div>
+        <div class="text-xs text-slate-500">支持高清无损 PNG 导出，可直接插入 Word / PDF 笔试报告</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="redrawConnections()" class="px-3.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer">
+        刷新连线对齐
+      </button>
+      <button id="export-btn" onclick="exportPNG()" class="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+        导出高清 PNG 截图
+      </button>
+    </div>
+  </div>
+
+  <!-- 主矢量架构画布 -->
+  <div id="diagram-canvas" class="p-8">
+    
+    <!-- SVG 矢量连线层 -->
+    <svg id="svg-overlay">
+      <defs>
+        <!-- Topic 蓝色实线箭头 -->
+        <marker id="arrow-topic" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#2563eb" />
+        </marker>
+        <!-- Service 绿色虚线箭头 -->
+        <marker id="arrow-service" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#059669" />
+        </marker>
+        <!-- Action 橙色粗线箭头 -->
+        <marker id="arrow-action" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 0 1 L 9.5 5 L 0 9 z" fill="#ea580c" />
+        </marker>
+      </defs>
+      <g id="connections-group"></g>
+    </svg>
+
+    <!-- 动态连线标签容器 -->
+    <div id="badges-layer"></div>
+
+    <!-- 1. 顶部标题与图例栏 -->
+    <header class="flex items-start justify-between border-b border-slate-200 pb-5 mb-7 relative z-10">
+      <div>
+        <div class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-medium mb-2">
+          <span>SYSTEM ARCHITECTURE</span>
+          <span>•</span>
+          <span>ROS 2 HUMBLE / FOXY</span>
+        </div>
+        <h1 class="text-2xl font-bold text-slate-900 tracking-tight">
+          农业机器人 ROS 2 分布式节点通信架构示意图
+        </h1>
+        <p class="text-xs text-slate-500 mt-1">
+          面向非结构化农田/温室环境的多传感器融合定位、自主导航与视觉伺服精准采摘系统
+        </p>
+      </div>
+
+      <!-- 通信机制图例卡片 -->
+      <div class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex flex-col gap-2 min-w-[310px]">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">ROS 2 通信机制图例</div>
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <svg width="34" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#2563eb" stroke-width="2"/><polygon points="25,1.5 33,5 25,8.5" fill="#2563eb"/></svg>
+            <span class="font-semibold text-blue-700">Topic</span>
+          </div>
+          <span class="text-slate-500">高频单向连续数据流 (异步)</span>
+        </div>
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <svg width="34" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#059669" stroke-width="2" stroke-dasharray="4,3"/><polygon points="25,1.5 33,5 25,8.5" fill="#059669"/></svg>
+            <span class="font-semibold text-emerald-700">Service</span>
+          </div>
+          <span class="text-slate-500">低频瞬时双向问答 (Req/Res)</span>
+        </div>
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <svg width="34" height="10"><line x1="0" y1="5" x2="25" y2="5" stroke="#ea580c" stroke-width="3"/><polygon points="24,1 33,5 24,9" fill="#ea580c"/></svg>
+            <span class="font-semibold text-orange-700">Action</span>
+          </div>
+          <span class="text-slate-500">长耗时任务 (含反馈与抢占)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- 2. 第一层：传感器驱动层 (Sensor Nodes) -->
+    <section class="layer-box bg-slate-50/90 border border-slate-200/90 p-4 mb-16">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-700">第一层：传感器驱动层 (Sensor Driver Nodes)</h2>
+        </div>
+        <span class="text-[11px] text-slate-400">独立硬件驱动节点 • SensorDataQoS 低延迟发布</span>
+      </div>
+
+      <div class="grid grid-cols-5 gap-4">
+        <!-- Node 1: Camera -->
+        <div id="node-camera" class="node-card border border-sky-200 border-t-4 border-t-sky-500 p-3.5 shadow-sm">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">视觉感知</span>
+            <span class="text-[10px] text-slate-400 font-mono-code">30Hz</span>
+          </div>
+          <div class="font-mono-code text-xs font-bold text-slate-900">/camera_node</div>
+          <div class="text-xs text-slate-600 mt-1">RGB-D 深度相机</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">彩图与对齐深度图采集</div>
+        </div>
+
+        <!-- Node 2: LiDAR -->
+        <div id="node-lidar" class="node-card border border-sky-200 border-t-4 border-t-sky-500 p-3.5 shadow-sm">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">激光测距</span>
+            <span class="text-[10px] text-slate-400 font-mono-code">15Hz</span>
+          </div>
+          <div class="font-mono-code text-xs font-bold text-slate-900">/lidar_node</div>
+          <div class="text-xs text-slate-600 mt-1">2D / 3D 激光雷达</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">环境点云扫描与障碍物探测</div>
+        </div>
+
+        <!-- Node 3: IMU -->
+        <div id="node-imu" class="node-card border border-sky-200 border-t-4 border-t-sky-500 p-3.5 shadow-sm">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">惯性测量</span>
+            <span class="text-[10px] text-slate-400 font-mono-code">200Hz</span>
+          </div>
+          <div class="font-mono-code text-xs font-bold text-slate-900">/imu_node</div>
+          <div class="text-xs text-slate-600 mt-1">九轴惯性测量单元</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">三轴角速度、加速度与姿态</div>
+        </div>
+
+        <!-- Node 4: GNSS -->
+        <div id="node-gnss" class="node-card border border-sky-200 border-t-4 border-t-sky-500 p-3.5 shadow-sm">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">卫星定位</span>
+            <span class="text-[10px] text-slate-400 font-mono-code">10Hz</span>
+          </div>
+          <div class="font-mono-code text-xs font-bold text-slate-900">/gnss_node</div>
+          <div class="text-xs text-slate-600 mt-1">RTK-GNSS 定位模块</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">露天大田厘米级绝对坐标</div>
+        </div>
+
+        <!-- Node 5: Force Sensor -->
+        <div id="node-force" class="node-card border border-indigo-200 border-t-4 border-t-indigo-500 p-3.5 shadow-sm">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">力觉反馈</span>
+            <span class="text-[10px] text-slate-400 font-mono-code">100Hz</span>
+          </div>
+          <div class="font-mono-code text-xs font-bold text-slate-900">/force_sensor_node</div>
+          <div class="text-xs text-slate-600 mt-1">末端六维力传感器</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">采摘夹持力与接触力矩监测</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 第二层：感知与状态估计层 (Perception & Localization) -->
+    <section class="layer-box bg-indigo-50/40 border border-indigo-200/80 p-4 mb-16 mr-44">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-700">第二层：感知与状态估计层 (Perception &amp; State Estimation)</h2>
+        </div>
+        <span class="text-[11px] text-slate-400">多源信息融合与目标空间解算</span>
+      </div>
+
+      <div class="grid grid-cols-12 gap-6">
+        <!-- Vision Detection Node -->
+        <div id="node-vision" class="col-span-5 node-card border border-indigo-200 border-l-4 border-l-indigo-600 p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="font-mono-code text-sm font-bold text-slate-900">/vision_detection_node</span>
+            <span class="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">视觉算法节点</span>
+          </div>
+          <p class="text-xs font-medium text-slate-700 mt-1.5">果实目标检测 + 3D 空间定位 + 卡尔曼滤波</p>
+          <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+            运行轻量化 YOLO 检测成熟果实，结合深度图提取三维质心，并通过 3D Kalman Filter 消除田间风吹晃动带来的坐标抖动。
+          </p>
+        </div>
+
+        <!-- EKF Localization Node -->
+        <div id="node-ekf" class="col-span-7 node-card border border-indigo-200 border-l-4 border-l-indigo-600 p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="font-mono-code text-sm font-bold text-slate-900">/ekf_localization_node</span>
+            <span class="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">多传感器融合定位</span>
+          </div>
+          <p class="text-xs font-medium text-slate-700 mt-1.5">多传感器状态估计与 SLAM 建图定位</p>
+          <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+            基于扩展卡尔曼滤波 (EKF) 与激光 SLAM，融合雷达点云、IMU 姿态、RTK-GNSS 坐标及底盘轮速计里程计，克服泥泞打滑带来的累积漂移。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. 第三层：决策与任务规划层 (Planning & Decision) -->
+    <section class="layer-box bg-amber-50/50 border border-amber-200/90 p-4 mb-16 mr-44">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-700">第三层：决策与任务规划层 (Planning &amp; Task Orchestration)</h2>
+        </div>
+        <span class="text-[11px] text-slate-400">行为树 / 有限状态机调度中枢</span>
+      </div>
+
+      <div id="node-task" class="node-card border border-amber-300 border-l-4 border-l-amber-500 p-4 shadow-sm max-w-3xl mx-auto">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <span class="font-mono-code text-sm font-bold text-slate-900">/task_manager_node</span>
+            <span class="text-xs font-semibold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">中央任务状态机 / 调度中心</span>
+          </div>
+          <span class="text-[11px] font-mono-code text-slate-400">BehaviorTree / FSM</span>
+        </div>
+        <p class="text-xs text-slate-600 mt-2 leading-relaxed">
+          综合全局位姿 (<span class="font-mono-code text-blue-700">/odom</span>) 与目标果实三维坐标 (<span class="font-mono-code text-blue-700">/target_fruit_pose</span>)，统筹“田间巡检移动 $\rightarrow$ 驻车稳定 $\rightarrow$ 逆解可达性校验 $\rightarrow$ 视觉伺服采摘”全流程状态切换与异常恢复。
+        </p>
+      </div>
+    </section>
+
+    <!-- 5. 第四层：运动规划与执行层 (Control & Hardware) -->
+    <section class="layer-box bg-emerald-50/40 border border-emerald-200/80 p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-700">第四层：运动规划与硬件执行层 (Control &amp; Hardware Execution)</h2>
+        </div>
+        <span class="text-[11px] text-slate-400">左右双通道闭环控制（移动底盘 + 作业机械臂）</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-8">
+        <!-- 左侧：移动底盘控制链 -->
+        <div class="bg-white/80 border border-slate-200 rounded-xl p-4 flex flex-col gap-12">
+          <div class="text-xs font-bold text-slate-700 flex items-center justify-between border-b border-slate-100 pb-2">
+            <span>移动底盘控制链 (Mobile Base Navigation)</span>
+            <span class="text-[10px] font-mono-code text-slate-400">Nav2 Stack</span>
+          </div>
+
+          <div id="node-nav2" class="node-card border border-emerald-200 border-l-4 border-l-emerald-500 p-3.5 shadow-sm">
+            <div class="flex items-center justify-between">
+              <span class="font-mono-code text-xs font-bold text-slate-900">/nav2_controller_node</span>
+              <span class="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium">局部路径规划</span>
+            </div>
+            <div class="text-xs text-slate-600 mt-1">局部路径规划 (DWA / TEB 算法)</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">结合局部代价地图实时避开果树枝干与行人，输出期望速度</div>
+          </div>
+
+          <div id="node-base" class="node-card border border-slate-300 border-l-4 border-l-slate-700 p-3.5 shadow-sm bg-slate-50/50">
+            <div class="flex items-center justify-between">
+              <span class="font-mono-code text-xs font-bold text-slate-900">/base_driver_node</span>
+              <span class="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-medium">底层硬件驱动</span>
+            </div>
+            <div class="text-xs text-slate-600 mt-1">底盘电机驱动与编码器里程计解算</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">CAN/串口下发四轮差速/阿克曼指令，上传轮速计反馈</div>
+          </div>
+        </div>
+
+        <!-- 右侧：机械臂作业控制链 -->
+        <div class="bg-white/80 border border-slate-200 rounded-xl p-4 flex flex-col gap-12">
+          <div class="text-xs font-bold text-slate-700 flex items-center justify-between border-b border-slate-100 pb-2">
+            <span>机械臂作业控制链 (Manipulator &amp; Force Control)</span>
+            <span class="text-[10px] font-mono-code text-slate-400">MoveIt 2 + ros2_control</span>
+          </div>
+
+          <div id="node-moveit" class="node-card border border-emerald-200 border-l-4 border-l-emerald-500 p-3.5 shadow-sm">
+            <div class="flex items-center justify-between">
+              <span class="font-mono-code text-xs font-bold text-slate-900">/arm_moveit_controller_node</span>
+              <span class="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium">运动规划与力控</span>
+            </div>
+            <div class="text-xs text-slate-600 mt-1">机械臂轨迹规划、IK 解算与柔顺力控</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">融合末端六维力反馈执行导纳控制，防止捏伤果实或折断果枝</div>
+          </div>
+
+          <div id="node-arm" class="node-card border border-slate-300 border-l-4 border-l-slate-700 p-3.5 shadow-sm bg-slate-50/50">
+            <div class="flex items-center justify-between">
+              <span class="font-mono-code text-xs font-bold text-slate-900">/arm_driver_node</span>
+              <span class="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-medium">关节伺服驱动</span>
+            </div>
+            <div class="text-xs text-slate-600 mt-1">机械臂关节伺服与末端采摘夹爪驱动</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">执行平滑关节轨迹插补，实时广播 <span class="font-mono-code text-slate-600">/joint_states</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. 底部全局基础服务横幅：/tf2_ros -->
+    <footer class="bg-slate-900 text-white rounded-xl px-5 py-3.5 flex items-center justify-between relative z-10 shadow-sm">
+      <div class="flex items-center gap-3">
+        <span class="px-2 py-1 rounded bg-blue-500/20 border border-blue-400/40 text-blue-300 font-mono-code text-xs font-bold">
+          /tf2_ros
+        </span>
+        <span class="text-xs font-medium text-slate-200">全局动态坐标变换树广播服务 (TF Tree)</span>
+      </div>
+      <div class="font-mono-code text-xs text-slate-300 bg-slate-800 px-3.5 py-1.5 rounded-lg border border-slate-700">
+        map <span class="text-blue-400">→</span> odom <span class="text-blue-400">→</span> base_link <span class="text-blue-400">→</span> arm_base <span class="text-blue-400">→</span> camera_link / gripper_link
+      </div>
+    </footer>
+
+  </div>
+
+  <script>
+    /**
+     * 获取元素相对于 #diagram-canvas 的精确边界框坐标
+     */
+    function getRelRect(el, container) {
+      const r = el.getBoundingClientRect();
+      const c = container.getBoundingClientRect();
+      return {
+        left: r.left - c.left,
+        right: r.right - c.left,
+        top: r.top - c.top,
+        bottom: r.bottom - c.top,
+        width: r.width,
+        height: r.height,
+        cx: (r.left + r.right) / 2 - c.left,
+        cy: (r.top + r.bottom) / 2 - c.top
+      };
+    }
+
+    /**
+     * 创建 SVG 路径元素
+     */
+    function createSvgPath(d, type) {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke-linejoin', 'round');
+      path.setAttribute('stroke-linecap', 'round');
+
+      if (type === 'topic') {
+        path.setAttribute('stroke', '#2563eb');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('marker-end', 'url(#arrow-topic)');
+      } else if (type === 'service') {
+        path.setAttribute('stroke', '#059669');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('stroke-dasharray', '5,4');
+        path.setAttribute('marker-end', 'url(#arrow-service)');
+      } else if (type === 'action') {
+        path.setAttribute('stroke', '#ea580c');
+        path.setAttribute('stroke-width', '3');
+        path.setAttribute('marker-end', 'url(#arrow-action)');
+      }
+      return path;
+    }
+
+    /**
+     * 添加连线上的文字标签胶囊
+     */
+    function addBadge(container, x, y, text, type) {
+      const badge = document.createElement('div');
+      badge.className = `edge-badge badge-${type}`;
+      badge.style.left = `${x}px`;
+      badge.style.top = `${y}px`;
+      badge.innerHTML = text;
+      container.appendChild(badge);
+    }
+
+    /**
+     * 核心路由函数：精确计算并绘制所有节点间的正交矢量连线与标签
+     */
+    function redrawConnections() {
+      const canvas = document.getElementById('diagram-canvas');
+      const group = document.getElementById('connections-group');
+      const badges = document.getElementById('badges-layer');
+
+      // 清空旧连线和标签
+      group.innerHTML = '';
+      badges.innerHTML = '';
+
+      // 获取所有节点坐标
+      const cam = getRelRect(document.getElementById('node-camera'), canvas);
+      const lidar = getRelRect(document.getElementById('node-lidar'), canvas);
+      const imu = getRelRect(document.getElementById('node-imu'), canvas);
+      const gnss = getRelRect(document.getElementById('node-gnss'), canvas);
+      const force = getRelRect(document.getElementById('node-force'), canvas);
+
+      const vision = getRelRect(document.getElementById('node-vision'), canvas);
+      const ekf = getRelRect(document.getElementById('node-ekf'), canvas);
+      const task = getRelRect(document.getElementById('node-task'), canvas);
+
+      const nav2 = getRelRect(document.getElementById('node-nav2'), canvas);
+      const base = getRelRect(document.getElementById('node-base'), canvas);
+      const moveit = getRelRect(document.getElementById('node-moveit'), canvas);
+      const arm = getRelRect(document.getElementById('node-arm'), canvas);
+
+      // 1. /camera_node -> /vision_detection_node (Topic)
+      const x1 = cam.cx;
+      const y1Start = cam.bottom;
+      const y1End = vision.top;
+      const midY1 = (y1Start + y1End) / 2;
+      group.appendChild(createSvgPath(`M ${x1} ${y1Start} L ${x1} ${midY1} L ${vision.cx - 40} ${midY1} L ${vision.cx - 40} ${y1End}`, 'topic'));
+      addBadge(badges, x1 + 35, midY1, '/camera/color/image<br>/camera/depth/image', 'topic');
+
+      // 2. /lidar_node, /imu_node, /gnss_node -> /ekf_localization_node (Topics)
+      const busY = (lidar.bottom + ekf.top) / 2 + 4;
+      // LiDAR 线
+      const lTargetX = ekf.left + ekf.width * 0.25;
+      group.appendChild(createSvgPath(`M ${lidar.cx} ${lidar.bottom} L ${lidar.cx} ${busY - 10} L ${lTargetX} ${busY - 10} L ${lTargetX} ${ekf.top}`, 'topic'));
+      addBadge(badges, lidar.cx, lidar.bottom + 18, '/scan /points', 'topic');
+
+      // IMU 线
+      const iTargetX = ekf.left + ekf.width * 0.52;
+      group.appendChild(createSvgPath(`M ${imu.cx} ${imu.bottom} L ${imu.cx} ${busY} L ${iTargetX} ${busY} L ${iTargetX} ${ekf.top}`, 'topic'));
+      addBadge(badges, imu.cx, imu.bottom + 18, '/imu/data', 'topic');
+
+      // GNSS 线
+      const gTargetX = ekf.left + ekf.width * 0.78;
+      group.appendChild(createSvgPath(`M ${gnss.cx} ${gnss.bottom} L ${gnss.cx} ${busY + 10} L ${gTargetX} ${busY + 10} L ${gTargetX} ${ekf.top}`, 'topic'));
+      addBadge(badges, gnss.cx, gnss.bottom + 18, '/gnss/fix', 'topic');
+
+      // 3. /vision_detection_node -> /task_manager_node (Topic)
+      const vStartX = vision.cx + 20;
+      const tLeftTarget = task.left + task.width * 0.28;
+      const midY2 = (vision.bottom + task.top) / 2;
+      group.appendChild(createSvgPath(`M ${vStartX} ${vision.bottom} L ${vStartX} ${midY2} L ${tLeftTarget} ${midY2} L ${tLeftTarget} ${task.top}`, 'topic'));
+      addBadge(badges, (vStartX + tLeftTarget) / 2 - 15, midY2, '/target_fruit_pose', 'topic');
+
+      // 4. /ekf_localization_node -> /task_manager_node (Topic)
+      const eStartX = ekf.cx - 30;
+      const tRightTarget = task.left + task.width * 0.72;
+      group.appendChild(createSvgPath(`M ${eStartX} ${ekf.bottom} L ${eStartX} ${midY2} L ${tRightTarget} ${midY2} L ${tRightTarget} ${task.top}`, 'topic'));
+      addBadge(badges, (eStartX + tRightTarget) / 2 + 20, midY2, '/odom &amp; /tf', 'topic');
+
+      // 5. /task_manager_node -> /nav2_controller_node (Action: /navigate_to_pose)
+      const tNavStart = task.left + task.width * 0.22;
+      const navTarget = nav2.cx;
+      const midY3 = (task.bottom + nav2.top) / 2;
+      group.appendChild(createSvgPath(`M ${tNavStart} ${task.bottom} L ${tNavStart} ${midY3} L ${navTarget} ${midY3} L ${navTarget} ${nav2.top}`, 'action'));
+      addBadge(badges, (tNavStart + navTarget) / 2 - 20, midY3, 'Action: /navigate_to_pose', 'action');
+
+      // 6. /task_manager_node -> /arm_moveit_controller_node (Service: /compute_ik & Action: /pick_fruit)
+      const tArmSvcStart = task.left + task.width * 0.65;
+      const moveitSvcTarget = moveit.cx - 55;
+      const midY3Svc = (task.bottom + moveit.top) / 2 - 10;
+      group.appendChild(createSvgPath(`M ${tArmSvcStart} ${task.bottom} L ${tArmSvcStart} ${midY3Svc} L ${moveitSvcTarget} ${midY3Svc} L ${moveitSvcTarget} ${moveit.top}`, 'service'));
+      addBadge(badges, (tArmSvcStart + moveitSvcTarget) / 2 - 25, midY3Svc, 'Service: /compute_ik', 'service');
+
+      const tArmActStart = task.left + task.width * 0.85;
+      const moveitActTarget = moveit.cx + 45;
+      const midY3Act = (task.bottom + moveit.top) / 2 + 12;
+      group.appendChild(createSvgPath(`M ${tArmActStart} ${task.bottom} L ${tArmActStart} ${midY3Act} L ${moveitActTarget} ${midY3Act} L ${moveitActTarget} ${moveit.top}`, 'action'));
+      addBadge(badges, (tArmActStart + moveitActTarget) / 2 + 30, midY3Act, 'Action: /pick_fruit', 'action');
+
+      // 7. /nav2_controller_node -> /base_driver_node (Topic: /cmd_vel)
+      const midY4Left = (nav2.bottom + base.top) / 2;
+      group.appendChild(createSvgPath(`M ${nav2.cx} ${nav2.bottom} L ${base.cx} ${base.top}`, 'topic'));
+      addBadge(badges, nav2.cx, midY4Left, '/cmd_vel', 'topic');
+
+      // 8. /arm_moveit_controller_node <-> /arm_driver_node (Topic: /joint_trajectory & /joint_states)
+      const midY4Right = (moveit.bottom + arm.top) / 2;
+      // 下行控制指令
+      group.appendChild(createSvgPath(`M ${moveit.cx - 45} ${moveit.bottom} L ${arm.cx - 45} ${arm.top}`, 'topic'));
+      addBadge(badges, moveit.cx - 58, midY4Right, '/joint_trajectory', 'topic');
+      // 上行关节状态反馈
+      group.appendChild(createSvgPath(`M ${arm.cx + 45} ${arm.top} L ${moveit.cx + 45} ${moveit.bottom}`, 'topic'));
+      addBadge(badges, moveit.cx + 58, midY4Right, '/joint_states', 'topic');
+
+      // 9. 右侧专属高速通道：/force_sensor_node -> /arm_moveit_controller_node (Topic: /arm/wrench)
+      const rightChannelX = canvas.offsetWidth - 52;
+      group.appendChild(createSvgPath(
+        `M ${force.cx} ${force.bottom} L ${force.cx} ${force.bottom + 18} L ${rightChannelX} ${force.bottom + 18} L ${rightChannelX} ${moveit.cy} L ${moveit.right} ${moveit.cy}`,
+        'topic'
+      ));
+      addBadge(badges, rightChannelX - 38, (force.bottom + moveit.cy) / 2, '/arm/wrench<br>(实时力反馈)', 'topic');
+
+      // 10. 左侧闭环回传通道：/base_driver_node -> /ekf_localization_node (Topic: /wheel/odom)
+      const leftChannelX = 22;
+      const ekfLeftTargetY = ekf.cy + 14;
+      group.appendChild(createSvgPath(
+        `M ${base.left} ${base.cy} L ${leftChannelX} ${base.cy} L ${leftChannelX} ${ekfLeftTargetY} L ${ekf.left} ${ekfLeftTargetY}`,
+        'topic'
+      ));
+      addBadge(badges, leftChannelX + 46, (base.cy + ekfLeftTargetY) / 2, '/wheel/odom<br>(轮速计回传)', 'topic');
+    }
+
+    /**
+     * 一键导出高清 PNG 截图
+     */
+    async function exportPNG() {
+      const btn = document.getElementById('export-btn');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '正在生成高清截图...';
+      btn.disabled = true;
+
+      try {
+        redrawConnections();
+        const canvasEl = document.getElementById('diagram-canvas');
+        const renderedCanvas = await html2canvas(canvasEl, {
+          scale: 2.5, // 2.5倍超采样，保证插入 Word/PDF 后字体和箭头极度锐利
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          logging: false
+        });
+
+        const link = document.createElement('a');
+        link.download = '美农机器人笔试-ROS2节点通信架构图.png';
+        link.href = renderedCanvas.toDataURL('image/png');
+        link.click();
+      } catch (err) {
+        console.error('导出失败:', err);
+      } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }
+    }
+
+    // 页面加载和窗口大小变化时重绘精确连线
+    window.addEventListener('load', () => {
+      setTimeout(redrawConnections, 100);
+    });
+    window.addEventListener('resize', redrawConnections);
+  </script>
+</body>
+</html>
