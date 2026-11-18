@@ -27,6 +27,7 @@ jobs:
             libopencv-dev
 
       - name: Build ROS 2 package with colcon
+        shell: bash
         run: |
           source /opt/ros/humble/setup.bash
           cd ros2_ws
