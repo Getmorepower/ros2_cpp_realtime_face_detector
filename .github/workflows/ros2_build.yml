@@ -1,0 +1,33 @@
+name: ROS 2 Humble CI Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    container:
+      image: ros:humble-ros-base
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ros2_ws/src/ros2_cpp_realtime_face_detector
+
+      - name: Install OpenCV and ROS 2 vision dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ros-humble-cv-bridge \
+            ros-humble-image-transport \
+            libopencv-dev
+
+      - name: Build ROS 2 package with colcon
+        run: |
+          source /opt/ros/humble/setup.bash
+          cd ros2_ws
+          colcon build --packages-select ros2_face_detector --cmake-args -DCMAKE_BUILD_TYPE=Release
